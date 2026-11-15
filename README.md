@@ -4,6 +4,15 @@ Local Kubernetes lab (kind + Terragrunt) and a reusable Helm chart for stateless
 
 EKS 를 운영하면서 서비스마다 반복해서 설정하던 배포 패턴을 개인 시간에 처음부터 다시 정리한 저장소다. 로컬 kind 클러스터에서 직접 띄워 보고, CI 에서 렌더링 결과를 검증한다.
 
+## 저장소 역할
+
+| 저장소 | 담는 것 |
+|---|---|
+| [k8s-lab](https://github.com/Mason0920/k8s-lab) | Terragrunt, Istio 실습을 진행하는 작업 저장소. 진행 중인 코드가 그대로 올라간다 |
+| platform-lab (이 저장소) | 블로그 글이 공개된 뒤, 그 글에서 다룬 결과물(모듈, 차트, 가이드)만 정리해서 옮긴다. CI 로 검증된 상태만 유지한다 |
+
+지금 들어 있는 Terragrunt 구성은 1주차 실습 결과다. 이후 단계는 블로그 글이 공개되는 순서대로 추가한다.
+
 ## 문제
 
 서비스를 Kubernetes 에 올릴 때마다 같은 질문이 나온다.
