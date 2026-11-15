@@ -1,0 +1,221 @@
+# generic-app 기본값
+# 기준: "상태 없는 HTTP 서비스 하나를 끊김 없이 배포하고, 노드가 바뀌어도 버틴다."
+# 서비스별 values 파일에서는 image, probes 경로, resources 정도만 바꾸면 되도록 기본값을 잡았다.
+
+# 리소스 이름과 app.kubernetes.io/name 라벨. 비우면 릴리스 이름을 쓴다.
+nameOverride: ""
+fullnameOverride: ""
+
+image:
+  repository: "" # 필수
+  tag: "" # 비우면 Chart.yaml 의 appVersion
+  digest: "" # 지정하면 tag 대신 repository@digest 로 고정
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# autoscaling.enabled=true 이면 이 값은 쓰지 않는다 (replicas 는 HPA 가 관리).
+replicaCount: 2
+
+revisionHistoryLimit: 5
+minReadySeconds: 0
+
+# 롤링 업데이트 중 기존 파드를 먼저 내리지 않는다.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 25%
+    maxUnavailable: 0
+
+command: []
+args: []
+
+# 컨테이너가 듣는 포트. probe 와 Service 는 이름(http)으로 참조한다.
+containerPort: 8080
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+env: []
+envFrom: []
+
+# CPU limit 은 기본으로 두지 않는다 (CFS 스로틀링으로 지연이 튀는 것을 피하기 위해).
+# 메모리는 limit 을 둔다. request 와 같게 두면 노드 메모리 압박 때 예측하기 쉽다.
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# probe 는 쿠버네티스 Probe 스펙을 그대로 받는다 (enabled 만 차트 전용 키).
+# readiness: 트래픽을 받아도 되는지. liveness: 프로세스가 살아 있는지.
+# liveness 에 DB 같은 외부 의존성 검사를 넣으면 의존성 장애 때 전체 파드가 재시작되므로 넣지 않는다.
+# httpGet 대신 tcpSocket 을 쓰려면 httpGet: null 로 지우고 tcpSocket 을 넣는다.
+probes:
+  startup:
+    enabled: true
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 5
+    failureThreshold: 30 # 최대 150초까지 기동을 기다린다. 이 동안 liveness 는 돌지 않는다.
+  readiness:
+    enabled: true
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  liveness:
+    enabled: true
+    httpGet:
+      path: /healthz
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+# 종료 처리
+# 파드가 Terminating 이 되어도 Service 엔드포인트와 로드밸런서 타깃에서 빠지는 데 시간이 걸린다.
+# 그 사이 들어오는 요청을 받기 위해 preStop 에서 잠깐 기다린 뒤 SIGTERM 을 받는다.
+# preStop sleep 은 쉘이 필요 없는 네이티브 sleep 액션을 쓴다 (k8s 1.30 부터 기본 활성).
+shutdown:
+  preStopSleepSeconds: 15 # 0 이면 preStop 을 넣지 않는다
+  terminationGracePeriodSeconds: 45 # preStop + 앱 종료 시간보다 커야 한다
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70 # 0 이면 CPU 지표를 쓰지 않는다
+  targetMemoryUtilizationPercentage: 0 # 0 이면 메모리 지표를 쓰지 않는다
+  # 늘릴 때는 빠르게, 줄일 때는 5분 동안 지켜본 뒤 천천히 줄인다.
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+        - type: Pods
+          value: 4
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      selectPolicy: Max
+      policies:
+        - type: Percent
+          value: 20
+          periodSeconds: 60
+
+# 노드 정리(drain, Karpenter consolidation) 때 한 번에 내려가는 파드 수를 제한한다.
+# 최소 replica 가 2 이상일 때만 만든다. replica 1 에 minAvailable 1 을 걸면 drain 이 막힌다.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1 # minAvailable 과 함께 쓸 수 없다
+  minAvailable: ""
+  # Ready 가 아닌 파드는 PDB 와 상관없이 내보낼 수 있게 한다 (고장 난 파드가 drain 을 막지 않도록).
+  unhealthyPodEvictionPolicy: AlwaysAllow
+
+# 분산 배치
+# labelSelector 가 없는 제약은 어떤 파드와도 매칭되지 않아 아무것도 분산하지 않는다.
+# 그래서 labelSelector 는 차트가 항상 selector 라벨로 채운다.
+# matchLabelKeys 에 pod-template-hash 를 넣으면 롤링 업데이트 중 새 ReplicaSet 파드끼리만 계산한다.
+topologySpread:
+  enabled: true
+  matchLabelKeys:
+    - pod-template-hash
+  zone:
+    enabled: true
+    maxSkew: 1
+    whenUnsatisfiable: ScheduleAnyway
+  hostname:
+    enabled: true
+    maxSkew: 1
+    whenUnsatisfiable: ScheduleAnyway
+
+# Karpenter 를 쓰는 클러스터에서 spot 노드를 선호하게 한다 (강제는 아니다).
+# spot NodePool 에 taint 가 있다면 tolerations 도 함께 넣어야 한다.
+karpenter:
+  preferSpot:
+    enabled: false
+    weight: 50
+
+nodeSelector: {}
+tolerations: []
+# affinity 는 그대로 전달한다. preferSpot 을 켜면 nodeAffinity.preferred 목록 뒤에 spot 선호 항목이 붙는다.
+affinity: {}
+priorityClassName: ""
+
+serviceAccount:
+  create: true
+  name: "" # 비우면 fullname
+  annotations: {}
+  # EKS IRSA: 지정하면 eks.amazonaws.com/role-arn 어노테이션을 붙인다.
+  irsaRoleArn: ""
+  # 쿠버네티스 API 를 부르지 않는 앱은 토큰을 마운트하지 않는다.
+  # IRSA 토큰은 별도 projected 볼륨으로 주입되므로 이 값과 상관없다.
+  automountToken: false
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# readOnlyRootFilesystem 에서도 /tmp 에는 쓸 수 있게 emptyDir 을 붙인다.
+tmpDir:
+  enabled: true
+  sizeLimit: 256Mi
+
+extraVolumes: []
+extraVolumeMounts: []
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: app.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# OpenTelemetry SDK 표준 환경변수를 넣는다. 계측 자체는 앱(SDK 또는 자동 계측)이 한다.
+otel:
+  enabled: false
+  serviceName: "" # 비우면 fullname
+  endpoint: http://otel-collector.observability.svc.cluster.local:4317
+  protocol: grpc # grpc | http/protobuf
+  environment: "" # deployment.environment.name
+  sampler: parentbased_traceidratio
+  samplerArg: "0.1"
+  # 추가 resource attribute. 예: { team: platform }
+  resourceAttributes: {}
+  # 수집기 인증 헤더는 values 에 쓰지 않고 Secret 에서 읽는다.
+  # Secret 값 형식: "authorization=Bearer xxx" (OTEL_EXPORTER_OTLP_HEADERS 형식)
+  headersSecret:
+    name: ""
+    key: ""
+
+# helm test 로 Service 에 요청 한 번 보내 본다.
+tests:
+  enabled: true
+  image: busybox:1.38
+  path: /

@@ -1,0 +1,26 @@
+# replica 1, 부가 기능을 끈 경우. PDB 는 replica 가 1 이라 만들어지지 않아야 한다.
+image:
+  repository: traefik/whoami
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+replicaCount: 1
+probes:
+  startup:
+    enabled: false
+  readiness:
+    enabled: true
+    tcpSocket:
+      port: http
+    httpGet: null
+  liveness:
+    enabled: false
+shutdown:
+  preStopSleepSeconds: 0
+  terminationGracePeriodSeconds: 30
+topologySpread:
+  enabled: false
+serviceAccount:
+  create: false
+tmpDir:
+  enabled: false
+tests:
+  enabled: false

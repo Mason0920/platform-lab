@@ -1,0 +1,59 @@
+# 로컬 kind 클러스터에서 차트를 확인하는 예제 앱
+# make deploy APP=whoami
+image:
+  repository: traefik/whoami
+  tag: v1.12.0
+
+# 비root 로 실행하므로 1024 미만 포트 대신 8080 을 듣게 한다
+args:
+  - --port=8080
+containerPort: 8080
+
+replicaCount: 2
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+probes:
+  startup:
+    enabled: true
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 2
+    failureThreshold: 15
+  readiness:
+    enabled: true
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 5
+  liveness:
+    enabled: true
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 10
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 16Mi
+  limits:
+    memory: 32Mi
+
+shutdown:
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 20
+
+# kind 노드에는 zone 라벨이 없다. ScheduleAnyway 라서 스케줄은 막히지 않는다.
+topologySpread:
+  enabled: true
+
+# metrics-server 를 설치하기 전까지는 HPA 를 끈다
+autoscaling:
+  enabled: false

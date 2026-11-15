@@ -1,0 +1,4 @@
+# 필수값만 넣은 경우. 나머지는 차트 기본값으로 렌더링된다.
+image:
+  repository: traefik/whoami
+  tag: v1.12.0

@@ -1,0 +1,5 @@
+# 2026-11-15 기준 확인한 최신 버전 (참고용)
+kind 0.33.0
+terragrunt 1.2.2
+terraform 1.17.2
+kubectl 1.34

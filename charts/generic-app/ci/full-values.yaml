@@ -1,0 +1,134 @@
+# 기능을 모두 켠 경우 (EKS + AWS Load Balancer Controller + Karpenter 를 가정)
+image:
+  repository: traefik/whoami
+  tag: v1.12.0
+args:
+  - --port=8080
+containerPort: 8080
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+probes:
+  startup:
+    enabled: true
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 2
+    failureThreshold: 30
+  readiness:
+    enabled: true
+    httpGet:
+      path: /health
+      port: http
+    periodSeconds: 5
+    failureThreshold: 2
+  liveness:
+    enabled: true
+    tcpSocket:
+      port: http
+    httpGet: null
+    periodSeconds: 10
+
+shutdown:
+  preStopSleepSeconds: 20
+  terminationGracePeriodSeconds: 60
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 20
+  targetCPUUtilizationPercentage: 60
+  targetMemoryUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 25%
+
+topologySpread:
+  enabled: true
+  zone:
+    enabled: true
+    maxSkew: 1
+    whenUnsatisfiable: DoNotSchedule
+  hostname:
+    enabled: true
+    maxSkew: 1
+    whenUnsatisfiable: ScheduleAnyway
+
+karpenter:
+  preferSpot:
+    enabled: true
+    weight: 80
+
+# preferSpot 항목은 이 목록 뒤에 붙는다
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/arch
+              operator: In
+              values:
+                - arm64
+                - amd64
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 20
+        preference:
+          matchExpressions:
+            - key: kubernetes.io/arch
+              operator: In
+              values:
+                - arm64
+
+# spot NodePool 에 taint 를 걸어 둔 경우에만 필요하다
+tolerations:
+  - key: karpenter.sh/capacity-type
+    operator: Equal
+    value: spot
+    effect: NoSchedule
+
+serviceAccount:
+  create: true
+  irsaRoleArn: arn:aws:iam::<AWS_ACCOUNT_ID>:role/example-app
+  annotations:
+    example.com/owner: platform
+
+podAnnotations:
+  example.com/team: platform
+
+env:
+  - name: LOG_LEVEL
+    value: info
+
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/target-group-attributes: deregistration_delay.timeout_seconds=30
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+  hosts:
+    - host: app.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+otel:
+  enabled: true
+  serviceName: example-app
+  environment: dev
+  protocol: grpc
+  samplerArg: "0.05"
+  resourceAttributes:
+    team: platform
+  headersSecret:
+    name: otel-ingest
+    key: headers

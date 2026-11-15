@@ -1,0 +1,15 @@
+{{ include "generic-app.fullname" . }} 를 {{ .Release.Namespace }} 네임스페이스에 배포했다.
+
+상태 확인:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "generic-app.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/instance={{ .Release.Name }} -o wide
+{{- if .Values.service.enabled }}
+
+로컬에서 요청 보내기:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "generic-app.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s http://127.0.0.1:8080/
+{{- end }}
+{{- if .Values.autoscaling.enabled }}
+
+HPA 가 replicas 를 관리한다 (min {{ .Values.autoscaling.minReplicas }}, max {{ .Values.autoscaling.maxReplicas }}). metrics-server 가 없으면 목표값이 <unknown> 으로 보인다.
+{{- end }}

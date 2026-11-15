@@ -1,0 +1,21 @@
+{{- $pdb := .Values.podDisruptionBudget }}
+{{- if and $pdb.enabled (ge (int (include "generic-app.minReplicas" .)) 2) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "generic-app.fullname" . }}
+  labels:
+    {{- include "generic-app.labels" . | nindent 4 }}
+spec:
+  {{- if ne (toString $pdb.minAvailable) "" }}
+  minAvailable: {{ $pdb.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ $pdb.maxUnavailable }}
+  {{- end }}
+  {{- with $pdb.unhealthyPodEvictionPolicy }}
+  unhealthyPodEvictionPolicy: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "generic-app.selectorLabels" . | nindent 6 }}
+{{- end }}
